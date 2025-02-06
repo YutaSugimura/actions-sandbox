@@ -8,6 +8,9 @@ jobs:
   check-up-to-date:
     runs-on: ubuntu-latest
     steps:
+      - name: Wait for GitHub to determine mergeability
+        run: sleep 5  # GitHubがmergeableの情報を確定するまで待つ
+
       - name: Check if branch is up to date
         id: check
         run: |
@@ -15,15 +18,26 @@ jobs:
           HEAD_BRANCH="${{ github.event.pull_request.head.ref }}"
           OWNER_REPO="${{ github.repository }}"
 
-          # APIからマージ状態を取得
+          # APIからPRの詳細情報を取得
           RESPONSE=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
             "https://api.github.com/repos/$OWNER_REPO/pulls/${{ github.event.pull_request.number }}")
+
+          echo "API Response: $RESPONSE"
 
           MERGEABLE=$(echo "$RESPONSE" | jq -r '.mergeable')
           MERGEABLE_STATE=$(echo "$RESPONSE" | jq -r '.mergeable_state')
 
           echo "Mergeable: $MERGEABLE"
           echo "Mergeable State: $MERGEABLE_STATE"
+
+          if [[ "$MERGEABLE" == "null" ]]; then
+            echo "GitHub is still processing mergeability status. Retrying..."
+            sleep 5
+            RESPONSE=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+              "https://api.github.com/repos/$OWNER_REPO/pulls/${{ github.event.pull_request.number }}")
+            MERGEABLE=$(echo "$RESPONSE" | jq -r '.mergeable')
+            MERGEABLE_STATE=$(echo "$RESPONSE" | jq -r '.mergeable_state')
+          fi
 
           if [[ "$MERGEABLE" == "false" || "$MERGEABLE_STATE" == "behind" ]]; then
             echo "❌ Branch is outdated! Please update your branch before merging."
