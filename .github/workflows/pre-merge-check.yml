@@ -1,49 +1,23 @@
-name: Prevent Outdated Merges
+name: Require Up-to-Date Branch
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened]
+    types: [opened, synchronize, reopened]  # PR作成・更新時などに実行
 
 jobs:
-  check-up-to-date:
-    runs-on: ubuntu-latest
+  before_all:
+    name: 'before all'
+    runs-on:
+      - self-hosted
+      - contra-general-purpose
     steps:
-      - name: Wait for GitHub to determine mergeability
-        run: sleep 5  # GitHubがmergeableの情報を確定するまで待つ
-
-      - name: Check if branch is up to date
-        id: check
+      - name: git checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: check if branch is ahead of main
         run: |
-          BASE_BRANCH="${{ github.event.pull_request.base.ref }}"
-          HEAD_BRANCH="${{ github.event.pull_request.head.ref }}"
-          OWNER_REPO="${{ github.repository }}"
-
-          # APIからPRの詳細情報を取得
-          RESPONSE=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-            "https://api.github.com/repos/$OWNER_REPO/pulls/${{ github.event.pull_request.number }}")
-
-          echo "API Response: $RESPONSE"
-
-          MERGEABLE=$(echo "$RESPONSE" | jq -r '.mergeable')
-          MERGEABLE_STATE=$(echo "$RESPONSE" | jq -r '.mergeable_state')
-
-          echo "Mergeable: $MERGEABLE"
-          echo "Mergeable State: $MERGEABLE_STATE"
-
-          if [[ "$MERGEABLE" == "null" ]]; then
-            echo "GitHub is still processing mergeability status. Retrying..."
-            sleep 5
-            RESPONSE=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-              "https://api.github.com/repos/$OWNER_REPO/pulls/${{ github.event.pull_request.number }}")
-            MERGEABLE=$(echo "$RESPONSE" | jq -r '.mergeable')
-            MERGEABLE_STATE=$(echo "$RESPONSE" | jq -r '.mergeable_state')
-          fi
-
-          if [[ "$MERGEABLE" == "false" || "$MERGEABLE_STATE" == "behind" ]]; then
-            echo "❌ Branch is outdated! Please update your branch before merging."
-            exit 1
-          fi
-
-      - name: Notify PR status
-        if: failure()
-        run: echo "🚨 PR is outdated! Merge is blocked until updated."
+          if ! git merge-base --is-ancestor origin/main ${{ github.event.pull_request.head.sha }};
+          then echo "This branch is not up to date with main";
+          exit 1; fi
+      - run: echo "Starting CI"
