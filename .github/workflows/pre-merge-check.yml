@@ -1,0 +1,19 @@
+name: Prevent Outdated Branch Merging
+
+on:
+  pull_request:
+    types: [synchronize, opened, reopened]
+
+jobs:
+  check-branch-up-to-date:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fetch latest main branch
+        run: git fetch origin main
+
+      - name: Check if branch is behind main
+        run: |
+          if git rev-list --left-right origin/main...HEAD | grep "^>"; then
+            echo "Branch is outdated. Please update before merging."
+            exit 1
+          fi
