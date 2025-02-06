@@ -1,19 +1,35 @@
-name: Prevent Outdated Branch Merging
+name: Prevent Outdated Merges
 
 on:
   pull_request:
-    types: [synchronize, opened, reopened]
+    types: [opened, synchronize, reopened]
 
 jobs:
-  check-branch-up-to-date:
+  check-up-to-date:
     runs-on: ubuntu-latest
     steps:
-      - name: Fetch latest main branch
-        run: git fetch origin main
-
-      - name: Check if branch is behind main
+      - name: Check if branch is up to date
+        id: check
         run: |
-          if git rev-list --left-right origin/main...HEAD | grep "^>"; then
-            echo "Branch is outdated. Please update before merging."
+          BASE_BRANCH="${{ github.event.pull_request.base.ref }}"
+          HEAD_BRANCH="${{ github.event.pull_request.head.ref }}"
+          OWNER_REPO="${{ github.repository }}"
+
+          # APIからマージ状態を取得
+          RESPONSE=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            "https://api.github.com/repos/$OWNER_REPO/pulls/${{ github.event.pull_request.number }}")
+
+          MERGEABLE=$(echo "$RESPONSE" | jq -r '.mergeable')
+          MERGEABLE_STATE=$(echo "$RESPONSE" | jq -r '.mergeable_state')
+
+          echo "Mergeable: $MERGEABLE"
+          echo "Mergeable State: $MERGEABLE_STATE"
+
+          if [[ "$MERGEABLE" == "false" || "$MERGEABLE_STATE" == "behind" ]]; then
+            echo "❌ Branch is outdated! Please update your branch before merging."
             exit 1
           fi
+
+      - name: Notify PR status
+        if: failure()
+        run: echo "🚨 PR is outdated! Merge is blocked until updated."
